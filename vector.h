@@ -3,6 +3,7 @@
 #include <utility>
 #include <cstdlib>
 #include <new>
+#include <memory>
 
 // Вспомогательный класс для управления памятью
 template <typename T>
@@ -74,27 +75,11 @@ public:
     Vector() = default;
 
     explicit Vector(size_t size) : data_(size), size_(size) {
-        size_t i = 0;
-        try {
-            for (; i != size; ++i) {
-                new (data_ + i) T();
-            }
-        } catch(...) {
-            DestroyN(data_.GetAddress(), i);
-            throw;
-        }
+        std::uninitialized_value_construct_n(data_.GetAddress(), size_);
     }
 
     Vector(const Vector& other) : data_(other.size_), size_(other.size_) {
-        size_t i = 0;
-        try {
-            for (; i != other.size_; ++i) {
-                CopyConstruct(data_ + i, other.data_[i]);
-            }
-        } catch (...) {
-            DestroyN(data_.GetAddress(), i);
-            throw;
-        }
+        std::uninitialized_copy_n(other.data_.GetAddress(), other.size_, data_.GetAddress());
     }
 
     size_t Size() const noexcept {
@@ -115,46 +100,29 @@ public:
     }
 
     ~Vector() {
-        DestroyN(data_.GetAddress(), size_);
+        std::destroy_n(data_.GetAddress(), size_);
     }
 
     void Reserve(size_t new_capacity) {
         if (new_capacity <= Capacity()) {
             return;
         }
-        RawMemory<T> new_data(new_capacity);
-        size_t i = 0;
-        try {
-            for (; i != size_; ++i) {
-                CopyConstruct(new_data + i, data_[i]);
-            }
-        } catch (...) {
-            DestroyN(new_data.GetAddress(), i);
-            throw;
-        }
-        DestroyN(data_.GetAddress(), size_);
 
+        // Выбираем, перемещать или копировать объекты в новую область памяти в зависимости от наличия нужных
+        // конструкторов
+        RawMemory<T> new_data(new_capacity);
+        if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
+            std::uninitialized_move_n(data_.GetAddress(), size_, new_data.GetAddress());
+        } else {
+            std::uninitialized_copy_n(data_.GetAddress(), size_, new_data.GetAddress());
+        }
+
+        // Тут просто уничтожаем старые объект и заменяем область памяти на новую
+        std::destroy_n(data_.GetAddress(), size_);
         data_.Swap(new_data);
     }
 
 private:
     RawMemory<T> data_;
     size_t size_ = 0;
-
-    // Вызывает деструкторы n объектов массива по адресу buf
-    static void DestroyN(T* buf, size_t n) noexcept {
-        for (size_t i = 0; i != n; ++i) {
-            Destroy(buf + i);
-        }
-    }
-
-    // Создаёт копию объекта elem в сырой памяти по адресу buf
-    static void CopyConstruct(T* buf, const T& elem) {
-        new (buf) T(elem);
-    }
-
-    // Вызывает деструктор объекта по адресу buf
-    static void Destroy(T* buf) noexcept {
-        buf->~T();
-    }
 };
