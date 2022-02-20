@@ -20,7 +20,7 @@ public:
         Swap(other);
     }
 
-    RawMemory& operator=(const RawMemory&& other) noexcept {
+    RawMemory& operator=(RawMemory&& other) noexcept {
         buffer_ = std::exchange(other.buffer_, nullptr);
         capacity_ = std::exchange(other.capacity_, 0);
     }
@@ -92,6 +92,11 @@ public:
 
     Vector(const Vector& other) : data_(other.size_), size_(other.size_) {
         std::uninitialized_copy_n(other.data_.GetAddress(), other.size_, data_.GetAddress());
+    }
+
+    Vector(Vector&& other) {
+        data_ = std::move(other.data_);
+        size_ = std::exchange(other.size_, 0);
     }
 
     size_t Size() const noexcept {
