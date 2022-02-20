@@ -148,6 +148,57 @@ public:
         return *this;
     }
 
+    void PushBack(const T& value) {
+        // Если ещё остаётся место в выделенной памяти, просто копируем туда
+        if (size_ < Capacity()) {
+            new (data_.GetAddress() + size_) T(value);
+        } else {
+            RawMemory<T> new_data(size_ == 0 ? 1 : size_ * 2);
+            new (new_data.GetAddress() + size_) T(value);
+            MoveToNewData(new_data);
+        }
+        ++size_;
+    }
+
+    void PushBack(T&& rhs_value) {
+        // Если ещё остаётся место в выделенной памяти, просто копируем туда
+        if (size_ < Capacity()) {
+            new (data_.GetAddress() + size_) T(std::move(rhs_value));
+        } else {
+            RawMemory<T> new_data(size_ == 0 ? 1 : size_ * 2);
+            new (new_data.GetAddress() + size_) T(std::move(rhs_value));
+            MoveToNewData(new_data);
+        }
+        ++size_;
+    }
+
+    void Resize(size_t new_size) {
+        if (new_size == size_) {
+            return;
+        } else if (new_size > Capacity()) {
+            // Если новый размер больше, чем вместимость, нужно выделить новый кусок памяти, переместить туда все элементы,
+            // а разницу между новым и старым size заполнить объектами по умолчанию
+            RawMemory<T> new_data(new_size);
+            std::uninitialized_value_construct_n(new_data.GetAddress() + size_, new_size - size_);
+            MoveToNewData(new_data);
+
+        } else {
+            // Если ноый размер меньше или равен вместимости, есть два варианта:
+            if (size_ > new_size) {
+                // 1 - новый размер меньше, чем старый. Нужно просто разницу старого и нового размеров разрушить
+                std::destroy_n(data_.GetAddress() + new_size, size_ - new_size);
+            } else {
+                // 2 - новый размер больше. Нужно разницу нового и старого инициализировать
+                std::uninitialized_value_construct_n(data_.GetAddress() + size_, new_size - size_);
+            }
+        }
+        size_ = new_size;
+    }
+
+    void PopBack() noexcept {
+        Resize(size_ - 1);
+    }
+
     size_t Size() const noexcept {
         return size_;
     }
@@ -173,19 +224,10 @@ public:
         if (new_capacity <= Capacity()) {
             return;
         }
-
         // Выбираем, перемещать или копировать объекты в новую область памяти в зависимости от наличия нужных
         // конструкторов
         RawMemory<T> new_data(new_capacity);
-        if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
-            std::uninitialized_move_n(data_.GetAddress(), size_, new_data.GetAddress());
-        } else {
-            std::uninitialized_copy_n(data_.GetAddress(), size_, new_data.GetAddress());
-        }
-
-        // Тут просто уничтожаем старые объект и заменяем область памяти на новую
-        std::destroy_n(data_.GetAddress(), size_);
-        data_.Swap(new_data);
+        MoveToNewData(new_data);
     }
 
     void Swap(Vector& other) noexcept {
@@ -196,4 +238,16 @@ public:
 private:
     RawMemory<T> data_;
     size_t size_ = 0;
+
+    void MoveToNewData(RawMemory<T>& new_data) {
+        // Сначала определяем, как именно будет происходить перемещение и перемещаем
+        if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
+            std::uninitialized_move_n(data_.GetAddress(), size_, new_data.GetAddress());
+        } else {
+            std::uninitialized_copy_n(data_.GetAddress(), size_, new_data.GetAddress());
+        }
+        // Тут просто уничтожаем старые объекты и заменяем область памяти на новую
+        std::destroy_n(data_.GetAddress(), size_);
+        data_.Swap(new_data);
+    }
 };
