@@ -21,8 +21,12 @@ public:
     }
 
     RawMemory& operator=(RawMemory&& other) noexcept {
+        if (this == &other) {
+            return *this;
+        }
         buffer_ = std::exchange(other.buffer_, nullptr);
         capacity_ = std::exchange(other.capacity_, 0);
+        return *this;
     }
 
     ~RawMemory() {
@@ -94,9 +98,54 @@ public:
         std::uninitialized_copy_n(other.data_.GetAddress(), other.size_, data_.GetAddress());
     }
 
-    Vector(Vector&& other) {
+    Vector(Vector&& other) noexcept {
         data_ = std::move(other.data_);
         size_ = std::exchange(other.size_, 0);
+    }
+
+    Vector& operator=(const Vector& other) {
+        if (this == &other) {
+            return *this;
+        }
+
+        // Тут два варианта: когда размера выделенной памяти хватает для копирования и когда нет
+        if (Capacity() >= other.size_) {
+            // В своё время когда места хватает, в инициализированные объекты мы просто записываем значения
+            // копируемых объектов, а оставшиеся нужно инициализировать
+
+            // Для начала перезапишем все возможные инициализированные объекты
+            size_t min_size = std::min(size_, other.size_);
+            for (size_t i = 0; i < min_size; ++i) {
+                (*this)[i] = other[i];
+            }
+
+            if (size_ >= other.size_) {
+                // Если хватает и размера, то лишние инициализированные объекты нужно будет уничтожить
+                std::destroy_n(data_.GetAddress() + other.size_, size_ - other.size_);
+            } else {
+                // Если нехватает, нужно инициализировать недостающее
+                std::uninitialized_copy_n(
+                        other.data_.GetAddress() + size_, other.size_ - size_, data_.GetAddress() + size_
+                );
+            }
+            size_ = other.size_;
+        } else {
+            // Когда размера нехватает, нужно просто выделить новый участок памяти и скопировать всё туда
+            // Проще всего это сделать с помощью конструктора копирования
+            Vector new_vector(other);
+            Swap(new_vector);
+        }
+
+        return *this;
+    }
+
+    Vector& operator=(Vector&& other) noexcept {
+        if (this == &other) {
+            return *this;
+        }
+        data_ = std::move(other.data_);
+        size_ = std::exchange(other.size_, 0);
+        return *this;
     }
 
     size_t Size() const noexcept {
