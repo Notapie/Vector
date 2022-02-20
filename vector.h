@@ -13,6 +13,18 @@ public:
 
     explicit RawMemory(size_t capacity) : buffer_(Allocate(capacity)), capacity_(capacity) {}
 
+    RawMemory(const RawMemory&) = delete;
+    RawMemory& operator=(const RawMemory&) = delete;
+
+    RawMemory(RawMemory&& other) noexcept {
+        Swap(other);
+    }
+
+    RawMemory& operator=(const RawMemory&& other) noexcept {
+        buffer_ = std::exchange(other.buffer_, nullptr);
+        capacity_ = std::exchange(other.capacity_, 0);
+    }
+
     ~RawMemory() {
         Deallocate(buffer_);
     }
