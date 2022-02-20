@@ -134,6 +134,11 @@ public:
         data_.Swap(new_data);
     }
 
+    void Swap(Vector& other) noexcept {
+        data_.Swap(other.data_);
+        std::swap(size_, other.size_);
+    }
+
 private:
     RawMemory<T> data_;
     size_t size_ = 0;
