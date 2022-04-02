@@ -172,6 +172,20 @@ public:
         ++size_;
     }
 
+    template <typename... Args>
+    T& EmplaceBack(Args&&... args) {
+        // Если ещё остаётся место в выделенной памяти, просто копируем туда
+        if (size_ < Capacity()) {
+            new (data_.GetAddress() + size_) T(std::forward<Args&&>(args)...);
+        } else {
+            RawMemory<T> new_data(size_ == 0 ? 1 : size_ * 2);
+            new (new_data.GetAddress() + size_) T(std::forward<Args&&>(args)...);
+            MoveToNewData(new_data);
+        }
+        ++size_;
+        return data_[size_ - 1];
+    }
+
     void Resize(size_t new_size) {
         if (new_size == size_) {
             return;
@@ -239,6 +253,7 @@ private:
     RawMemory<T> data_;
     size_t size_ = 0;
 
+    // Тут нужно подумать над названием
     void MoveToNewData(RawMemory<T>& new_data) {
         // Сначала определяем, как именно будет происходить перемещение и перемещаем
         if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
