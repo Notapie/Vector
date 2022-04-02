@@ -149,27 +149,11 @@ public:
     }
 
     void PushBack(const T& value) {
-        // Если ещё остаётся место в выделенной памяти, просто копируем туда
-        if (size_ < Capacity()) {
-            new (data_.GetAddress() + size_) T(value);
-        } else {
-            RawMemory<T> new_data(size_ == 0 ? 1 : size_ * 2);
-            new (new_data.GetAddress() + size_) T(value);
-            MoveToNewData(new_data);
-        }
-        ++size_;
+        EmplaceBack(value);
     }
 
     void PushBack(T&& rhs_value) {
-        // Если ещё остаётся место в выделенной памяти, просто копируем туда
-        if (size_ < Capacity()) {
-            new (data_.GetAddress() + size_) T(std::move(rhs_value));
-        } else {
-            RawMemory<T> new_data(size_ == 0 ? 1 : size_ * 2);
-            new (new_data.GetAddress() + size_) T(std::move(rhs_value));
-            MoveToNewData(new_data);
-        }
-        ++size_;
+        EmplaceBack(std::move(rhs_value));
     }
 
     template <typename... Args>
