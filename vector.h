@@ -185,16 +185,68 @@ public:
 
     template <typename... Args>
     T& EmplaceBack(Args&&... args) {
-        // Если ещё остаётся место в выделенной памяти, просто копируем туда
+        return *Emplace(end(), std::forward<Args&&>(args)...);
+    }
+
+    iterator Insert(const_iterator pos, const T& value) {
+        return Emplace(pos, value);
+    }
+
+    iterator Insert(const_iterator pos, T&& value) {
+        return Emplace(pos, std::move(value));
+    }
+
+    template<typename... Args>
+    iterator Emplace(const_iterator pos, Args&&... args) {
+        size_t index = pos - begin();
+
+        // Тут два варианта: хватает капасити или нет
+        // Разница лишь в том, что если капасити нехватает, то мы конструируем объект сразу в новом участке памяти
         if (size_ < Capacity()) {
-            new (data_.GetAddress() + size_) T(std::forward<Args&&>(args)...);
+            if (pos == end()) {
+                new (data_.GetAddress() + size_) T(std::forward<Args&&>(args)...);
+            } else {
+                T temp_object(std::forward<Args&&>(args)...);
+                new (data_.GetAddress() + size_) T(std::move(*(end() - 1)));
+                std::move_backward(begin() + index, end() - 1, end());
+                *(begin() + index) = std::move(temp_object);
+            }
         } else {
             RawMemory<T> new_data(size_ == 0 ? 1 : size_ * 2);
-            new (new_data.GetAddress() + size_) T(std::forward<Args&&>(args)...);
-            MoveToNewData(new_data);
+            new (new_data.GetAddress() + index) T(std::forward<Args&&>(args)...);
+
+            // Тут при исключении нужно разрушить один первый сконструированный объект в новой памяти
+            try {
+                MoveData(begin(), index, new_data.GetAddress());
+            } catch (...) {
+                std::destroy_n(new_data.GetAddress() + index, 1);
+                throw;
+            }
+
+            // Тут при исключении нужно разрушить все элементы с начала и до вставляемого включительно
+            try {
+                MoveData(begin() + index, size_ - index, new_data.GetAddress() + index + 1);
+            } catch (...) {
+                std::destroy_n(new_data.GetAddress(), index + 1);
+                throw;
+            }
+
+            std::destroy_n(data_.GetAddress(), size_);
+            data_.Swap(new_data);
         }
+
         ++size_;
-        return data_[size_ - 1];
+        return begin() + index;
+    }
+
+    iterator Erase(const_iterator pos) {
+        size_t index = pos - begin();
+
+        std::move(begin() + index + 1, end(), begin() + index);
+        std::destroy_n(end() - 1, 1);
+
+        --size_;
+        return begin() + index;
     }
 
     void Resize(size_t new_size) {
@@ -275,5 +327,14 @@ private:
         // Тут просто уничтожаем старые объекты и заменяем область памяти на новую
         std::destroy_n(data_.GetAddress(), size_);
         data_.Swap(new_data);
+    }
+
+    void MoveData(iterator src, size_t size, iterator dest) {
+        // Сначала определяем, как именно будет происходить перемещение и перемещаем
+        if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
+            std::uninitialized_move_n(src, size, dest);
+        } else {
+            std::uninitialized_copy_n(src, size, dest);
+        }
     }
 };
